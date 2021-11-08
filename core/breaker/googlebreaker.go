@@ -19,12 +19,19 @@ const (
 // googleBreaker is a netflixBreaker pattern from google.
 // see Client-Side Throttling section in https://landing.google.com/sre/sre-book/chapters/handling-overload/
 type googleBreaker struct {
-	k     float64
-	stat  *collection.RollingWindow
+	//敏感度，默认值为1.5
+	k float64
+	//滑动窗口，用于记录最近一段时间内的请求总数，成功总数
+	stat *collection.RollingWindow
+	//概率生成器
+	//随机产生0.0-1.0之间的双精度浮点数
 	proba *mathx.Proba
 }
 
+//自适应熔断器构造器
 func newGoogleBreaker() *googleBreaker {
+	//滑动时间单元间隔时间
+	//窗口时间/窗口数
 	bucketDuration := time.Duration(int64(window) / int64(buckets))
 	st := collection.NewRollingWindow(buckets, bucketDuration)
 	return &googleBreaker{
