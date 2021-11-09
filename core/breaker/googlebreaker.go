@@ -41,15 +41,20 @@ func newGoogleBreaker() *googleBreaker {
 	}
 }
 
+//按照最近一段时间的请求数据计算是否熔断
 func (b *googleBreaker) accept() error {
+	//获取最近一段时间的统计数据
 	accepts, total := b.history()
+	//计算动态熔断概率
 	weightedAccepts := b.k * float64(accepts)
 	// https://landing.google.com/sre/sre-book/chapters/handling-overload/#eq2101
 	dropRatio := math.Max(0, (float64(total-protection)-weightedAccepts)/float64(total+1))
+	//概率为0，通过
 	if dropRatio <= 0 {
 		return nil
 	}
-
+	//随机产生0.0-1.0之间的随机数与上面计算出来的熔断概率相比较
+	//如果随机数比熔断概率小则进行熔断
 	if b.proba.TrueOnProba(dropRatio) {
 		return ErrServiceUnavailable
 	}
@@ -57,6 +62,8 @@ func (b *googleBreaker) accept() error {
 	return nil
 }
 
+//熔断方法
+//返回一个promise可有开发者自行决定是否上报结果到熔断器
 func (b *googleBreaker) allow() (internalPromise, error) {
 	if err := b.accept(); err != nil {
 		return nil, err
@@ -67,23 +74,30 @@ func (b *googleBreaker) allow() (internalPromise, error) {
 	}, nil
 }
 
+//熔断方法
+//req - 熔断对象方法
+//fallback - 自定义快速失败函数，可对熔断产生的err进行包装后返回
+//acceptable - 对本次未熔断时执行请求的结果进行自定义的判定，比如可以针对http.code,rpc.code,body.code
 func (b *googleBreaker) doReq(req func() error, fallback func(err error) error, acceptable Acceptable) error {
+	//判定是否熔断
 	if err := b.accept(); err != nil {
+		//熔断中，如果有自定义的fallback则执行
 		if fallback != nil {
 			return fallback(err)
 		}
 
 		return err
 	}
-
+	//如果执行req()过程发生了panic，依然判定本次执行失败上报至熔断器
 	defer func() {
 		if e := recover(); e != nil {
 			b.markFailure()
 			panic(e)
 		}
 	}()
-
+	//执行请求
 	err := req()
+	//判定请求成功
 	if acceptable(err) {
 		b.markSuccess()
 	} else {
@@ -93,14 +107,17 @@ func (b *googleBreaker) doReq(req func() error, fallback func(err error) error, 
 	return err
 }
 
+//上报成功
 func (b *googleBreaker) markSuccess() {
 	b.stat.Add(1)
 }
 
+//上报失败
 func (b *googleBreaker) markFailure() {
 	b.stat.Add(0)
 }
 
+//统计数据
 func (b *googleBreaker) history() (accepts, total int64) {
 	b.stat.Reduce(func(b *collection.Bucket) {
 		accepts += int64(b.Sum)
