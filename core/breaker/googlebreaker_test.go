@@ -2,6 +2,8 @@ package breaker
 
 import (
 	"errors"
+	"log"
+	"math"
 	"math/rand"
 	"testing"
 	"time"
@@ -232,4 +234,18 @@ func markFailed(b *googleBreaker, count int) {
 			p.Reject()
 		}
 	}
+}
+
+func TestSreK(t *testing.T) {
+	total, accepts := 1000, 500
+	for i := 0; i < 100; i++ {
+		k := 1 + float64(i)/100
+		log.Println(k)
+		weightedAccepts := k * float64(accepts)
+		log.Println(weightedAccepts)
+		dropRatio := math.Max(0, (float64(total)-weightedAccepts)/float64(total+1))
+		log.Println(dropRatio)
+		log.Println()
+	}
+
 }
