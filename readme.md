@@ -12,3 +12,4 @@ commit id：3ede597a15581f957296938c0a9f835e209cd24b
 - tokenLimit限流器
 - 共享调用singleFlight
 - 自适应熔断Breaker
+- 自适应降级Shadder

@@ -1,6 +1,7 @@
 package redis
 
 import (
+	"github.com/tal-tech/go-zero/core/stringx"
 	"math/rand"
 	"strconv"
 	"sync/atomic"
@@ -45,7 +46,7 @@ func NewRedisLock(store *Redis, key string) *RedisLock {
 	return &RedisLock{
 		store: store,
 		key:   key,
-		id:    randomStr(randomLen),
+		id:    stringx.Randn(randomLen),
 	}
 }
 
