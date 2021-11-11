@@ -45,8 +45,10 @@ type (
 	//回调函数
 	Promise interface {
 		// Pass lets the caller tell that the call is successful.
+		//请求成功时回调此函数
 		Pass()
 		// Fail lets the caller tell that the call is failed.
+		//请求失败时回调此函数
 		Fail()
 	}
 
@@ -54,14 +56,14 @@ type (
 	//降级接口定义，类似于熔断器
 	Shedder interface {
 		// Allow returns the Promise if allowed, otherwise ErrServiceOverloaded.
-		//业务调用方法
+		//降级检查
 		//1. 允许调用，需手动执行 Promise.accept()/reject()上报实际执行任务结构
 		//2. 拒绝调用，将会直接返回err：服务过载错误 ErrServiceOverloaded
 		Allow() (Promise, error)
 	}
 
 	// ShedderOption lets caller customize the Shedder.
-	//option参数函数
+	//option参数模式
 	ShedderOption func(opts *shedderOptions)
 
 	//可选配置参数
@@ -81,9 +83,9 @@ type (
 		cpuThreshold int64
 		//1s内有多少个桶
 		windows int64
-		//并发数
+		//当前正在处理的并发数
 		flying int64
-		//滑动平滑并发数
+		//当前滑动平滑并发数
 		avgFlying float64
 		//自旋锁，一个服务共用一个降载器
 		//统计当前正在处理的请求数时必须加锁
@@ -93,7 +95,7 @@ type (
 		dropTime *syncx.AtomicDuration
 		//最近是否被拒绝过
 		droppedRecently *syncx.AtomicBool
-		//请求通过数统计，通过滑动时间窗口记录最近一段时间内指标
+		//请求数统计，通过滑动时间窗口记录最近一段时间内指标
 		passCounter *collection.RollingWindow
 		//响应时间统计，通过滑动时间窗口记录最近一段时间内指标
 		rtCounter *collection.RollingWindow
@@ -152,9 +154,9 @@ func NewAdaptiveShedder(opts ...ShedderOption) Shedder {
 }
 
 // Allow implements Shedder.Allow.
-// 判断是否应该降级方法
+// 降级检查
 func (as *adaptiveShedder) Allow() (Promise, error) {
-	//降级
+	//检查请求是否被丢弃
 	if as.shouldDrop() {
 		//设置drop时间
 		as.dropTime.Set(timex.Now())
@@ -189,7 +191,7 @@ func (as *adaptiveShedder) addFlying(delta int64) {
 	}
 }
 
-//判断系统是否处于最高负载中
+//检查当前处理的并发数是否过载
 func (as *adaptiveShedder) highThru() bool {
 	//加锁
 	as.avgFlyingLock.Lock()
@@ -200,7 +202,7 @@ func (as *adaptiveShedder) highThru() bool {
 	as.avgFlyingLock.Unlock()
 	//系统此时最大并发数
 	maxFlight := as.maxFlight()
-	//实际请求并发数是否大于系统的最大并发数
+	//实际请求并发数和平均并发数是否大于系统的最大并发数
 	return int64(avgFlying) > maxFlight && atomic.LoadInt64(&as.flying) > maxFlight
 }
 
@@ -253,10 +255,13 @@ func (as *adaptiveShedder) minRt() float64 {
 	return result
 }
 
-//当前服务是否过载
+//请求是否应该被丢弃
 func (as *adaptiveShedder) shouldDrop() bool {
-	//当前cpu负载超过阈值 或者 不在冷却期
+	//当前cpu负载超过阈值
+	//服务处于冷却期内应该继续检查负载并尝试丢弃请求
 	if as.systemOverloaded() || as.stillHot() {
+		//检查正在处理的并发是否超出当前可承载的最大并发数
+		//超出则丢弃请求
 		if as.highThru() {
 			flying := atomic.LoadInt64(&as.flying)
 			as.avgFlyingLock.Lock()
@@ -270,26 +275,28 @@ func (as *adaptiveShedder) shouldDrop() bool {
 			return true
 		}
 	}
-
 	return false
 }
 
 //判断当前系统是否处于冷却期
-//处于冷却期：可以被drop
-//主要是防止系统在过载恢复过程中立马又增加压力导致来回抖动
+//处于冷却期内，继续尝试降级丢弃请求
+//主要是防止系统在过载恢复过程中
+//负载还未降下来立马又增加压力导致来回抖动
+//此时应该尝试继续丢弃请求
 func (as *adaptiveShedder) stillHot() bool {
-	//最近没有被drop过，说明当前不在冷却期，可以被drop
+	//最近没有丢弃请求
+	//说明服务正常
 	if !as.droppedRecently.True() {
 		return false
 	}
-	//dropTime为0，说明最近没有被drop过，不处于冷却期
+	//不在冷却期
 	dropTime := as.dropTime.Load()
 	if dropTime == 0 {
 		return false
 	}
 	//冷却时间默认为1s
 	hot := timex.Since(dropTime) < coolOffDuration
-	//超过了冷却期
+	//不在冷却期，正常处理请求中
 	if !hot {
 		//重置drop记录
 		as.droppedRecently.Set(false)
@@ -298,7 +305,7 @@ func (as *adaptiveShedder) stillHot() bool {
 	return hot
 }
 
-//cpu
+//cpu 是否过载
 func (as *adaptiveShedder) systemOverloaded() bool {
 	return systemOverloadChecker(as.cpuThreshold)
 }

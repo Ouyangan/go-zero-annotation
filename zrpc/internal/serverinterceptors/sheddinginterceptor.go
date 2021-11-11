@@ -24,22 +24,26 @@ func UnarySheddingInterceptor(shedder load.Shedder, metrics *stat.Metrics) grpc.
 		handler grpc.UnaryHandler) (val interface{}, err error) {
 		sheddingStat.IncrementTotal()
 		var promise load.Promise
+		//检查是否被降级
 		promise, err = shedder.Allow()
+		//降级，记录相关日志与指标
 		if err != nil {
 			metrics.AddDrop()
 			sheddingStat.IncrementDrop()
 			return
 		}
-
+		//最后回调执行结果
 		defer func() {
+			//执行失败
 			if err == context.DeadlineExceeded {
 				promise.Fail()
+				//	执行成功
 			} else {
 				sheddingStat.IncrementPass()
 				promise.Pass()
 			}
 		}()
-
+		//执行业务方法
 		return handler(ctx, req)
 	}
 }
