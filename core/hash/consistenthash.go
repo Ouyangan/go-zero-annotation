@@ -20,11 +20,15 @@ const (
 
 type (
 	// Func defines the hash method.
+	//哈希函数
 	Func func(data []byte) uint64
 
 	// A ConsistentHash is a ring hash implementation.
+	//一致性哈希
 	ConsistentHash struct {
+		//哈希函数
 		hashFunc Func
+		//
 		replicas int
 		keys     []uint64
 		ring     map[uint64][]interface{}
