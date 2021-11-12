@@ -45,3 +45,9 @@ func BenchmarkMurmur3(b *testing.B) {
 		Hash([]byte(text))
 	}
 }
+
+func TestHash2(t *testing.T) {
+	hash := Hash([]byte(text))
+	t.Log(hash)
+
+}
