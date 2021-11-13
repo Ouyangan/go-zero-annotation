@@ -29,13 +29,13 @@ type (
 		//哈希函数
 		hashFunc Func
 		//虚拟节点放大因子
-		//todo 放大因子有什么作用呢
+		//确定node的虚拟节点数量
 		replicas int
-		//key到虚拟节点的映射，会有多个虚拟节点
+		//虚拟节点列表
 		keys []uint64
 		//虚拟节点到物理节点的映射
 		ring map[uint64][]interface{}
-		//物理节点映射，方便查找
+		//物理节点映射，快速判断是否存在node
 		nodes map[string]lang.PlaceholderType
 		//读写锁
 		lock sync.RWMutex
@@ -79,8 +79,8 @@ func (h *ConsistentHash) Add(node interface{}) {
 // the later call will overwrite the replicas of the former calls.
 //扩容操作，增加物理节点
 func (h *ConsistentHash) AddWithReplicas(node interface{}, replicas int) {
-	//节点支持可重入
-	//所以先执行删除操作
+	//支持可重复添加
+	//先执行删除操作
 	h.Remove(node)
 	//不能超过放大因子上限
 	if replicas > h.replicas {
@@ -93,13 +93,18 @@ func (h *ConsistentHash) AddWithReplicas(node interface{}, replicas int) {
 	//添加node map映射
 	h.addNode(nodeRepr)
 	for i := 0; i < replicas; i++ {
+		//创建虚拟节点
 		hash := h.hashFunc([]byte(nodeRepr + strconv.Itoa(i)))
 		//添加虚拟节点
 		h.keys = append(h.keys, hash)
-		//添加虚拟节点 -> 物理节点 映射
+		//映射虚拟节点-真实节点
+		//注意hashFunc可能会出现哈希冲突，所以采用的是追加操作
+		//虚拟节点-真实节点的映射对应的其实是个数组
+		//一个虚拟节点可能对应多个真实节点，当然概率非常小
 		h.ring[hash] = append(h.ring[hash], node)
 	}
-	//排序，提高查询效率
+	//排序
+	//后面会使用二分查找虚拟节点
 	sort.Slice(h.keys, func(i, j int) bool {
 		return h.keys[i] < h.keys[j]
 	})
@@ -118,31 +123,37 @@ func (h *ConsistentHash) AddWithWeight(node interface{}, weight int) {
 }
 
 // Get returns the corresponding node from h base on the given v.
-//根据key，获取节点
+//根据v顺时针找到最近的虚拟节点
+//再通过虚拟节点映射找到真实节点
 func (h *ConsistentHash) Get(v interface{}) (interface{}, bool) {
 	h.lock.RLock()
 	defer h.lock.RUnlock()
-	//当前哈希还上没有物理节点
+	//当前哈希还没有物理节点
 	if len(h.ring) == 0 {
 		return nil, false
 	}
 	//计算哈希值
 	hash := h.hashFunc([]byte(repr(v)))
-	//二分查找第一个虚拟节点
+	//二分查找
+	//因为每次添加节点后虚拟节点都会重新排序
+	//所以查询到的第一个节点就是我们的目标节点
+	//取余则可以实现环形列表效果，顺时针查找节点
 	index := sort.Search(len(h.keys), func(i int) bool {
 		return h.keys[i] >= hash
 	}) % len(h.keys)
 	//虚拟节点->物理节点映射
-	//这里可能会存在hash冲突
-	//所以返回的是多个
 	nodes := h.ring[h.keys[index]]
 	switch len(nodes) {
+	//不存在真实节点
 	case 0:
 		return nil, false
+	//只有一个真实节点，直接返回
 	case 1:
 		return nodes[0], true
-	//todo 是什么意思呢？
+	//存在多个真实节点意味这出现哈希冲突
 	default:
+		//此时我们对v重新进行哈希计算
+		//对nodes长度取余得到一个新的index
 		innerIndex := h.hashFunc([]byte(innerRepr(v)))
 		pos := int(innerIndex % uint64(len(nodes)))
 		return nodes[pos], true
@@ -157,7 +168,7 @@ func (h *ConsistentHash) Remove(node interface{}) {
 	//并发安全
 	h.lock.Lock()
 	defer h.lock.Unlock()
-	//如果已经移除了node节点则直接忽略
+	//节点不存在
 	if !h.containsNode(nodeRepr) {
 		return
 	}
@@ -169,27 +180,40 @@ func (h *ConsistentHash) Remove(node interface{}) {
 		index := sort.Search(len(h.keys), func(i int) bool {
 			return h.keys[i] >= hash
 		})
-		//
+		//切片删除对应的元素
 		if index < len(h.keys) && h.keys[index] == hash {
+			//定位到切片index之前的元素
+			//将index之后的元素（index+1）前移覆盖index
 			h.keys = append(h.keys[:index], h.keys[index+1:]...)
 		}
+		//虚拟节点删除映射
 		h.removeRingNode(hash, nodeRepr)
 	}
-
+	//删除真实节点
 	h.removeNode(nodeRepr)
 }
 
+//删除虚拟-真实节点映射关系
+//hash - 虚拟节点
+//nodeRepr - 真实节点
 func (h *ConsistentHash) removeRingNode(hash uint64, nodeRepr string) {
+	//map使用时应该校验一下
 	if nodes, ok := h.ring[hash]; ok {
+		//新建一个空的切片,容量与nodes保持一致
 		newNodes := nodes[:0]
+		//遍历nodes
 		for _, x := range nodes {
+			//如果序列化值不相同，x是其他节点
+			//不能删除
 			if repr(x) != nodeRepr {
 				newNodes = append(newNodes, x)
 			}
 		}
+		//剩余节点不为空则重新绑定映射关系
 		if len(newNodes) > 0 {
 			h.ring[hash] = newNodes
 		} else {
+			//否则删除即可
 			delete(h.ring, hash)
 		}
 	}
@@ -206,14 +230,16 @@ func (h *ConsistentHash) containsNode(nodeRepr string) bool {
 	return ok
 }
 
+//删除node
 func (h *ConsistentHash) removeNode(nodeRepr string) {
 	delete(h.nodes, nodeRepr)
 }
 
 //返回node的string值
-//todo prime有什么作用呢？
-func innerRepr(node interface{}) string {
-	return fmt.Sprintf("%d:%v", prime, node)
+//在遇到哈希冲突时需要重新对key进行哈希计算
+//为了减少冲突的概率前面追加了一个质数 prime来减小冲突的概率
+func innerRepr(v interface{}) string {
+	return fmt.Sprintf("%d:%v", prime, v)
 }
 
 //返回node的字符串

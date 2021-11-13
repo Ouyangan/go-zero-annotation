@@ -164,6 +164,15 @@ func getKeysBeforeAndAfterFailure(t *testing.T, prefix string, index int) (map[i
 	return keys, newKeys
 }
 
+func TestSlice(t *testing.T) {
+	i := []int{1, 2, 3, 4}
+	j := i[:0]
+	t.Log(len(i))
+	t.Log(cap(i))
+	t.Log(len(j))
+	t.Log(cap(j))
+}
+
 type mockNode struct {
 	addr string
 	id   int
