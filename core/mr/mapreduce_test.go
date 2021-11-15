@@ -432,3 +432,13 @@ func BenchmarkMapReduce(b *testing.B) {
 		}, mapper, reducer)
 	}
 }
+
+func TestMapReduceWithSource(t *testing.T) {
+	MapReduce(func(source chan<- interface{}) {
+		source <- 1
+	}, func(item interface{}, writer Writer, cancel func(error)) {
+
+	}, func(pipe <-chan interface{}, writer Writer, cancel func(error)) {
+
+	})
+}
