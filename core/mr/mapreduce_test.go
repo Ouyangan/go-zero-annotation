@@ -434,11 +434,46 @@ func BenchmarkMapReduce(b *testing.B) {
 }
 
 func TestMapReduceWithSource(t *testing.T) {
-	MapReduce(func(source chan<- interface{}) {
-		source <- 1
-	}, func(item interface{}, writer Writer, cancel func(error)) {
+	ch := make(chan interface{})
+	//写入完毕需要主动关闭channel
+	defer func() {
+		close(ch)
+	}()
+	go func() {
+		//读取channel
+		for {
+			v, ok := <-ch
+			if !ok {
+				return
+			}
+			t.Log(v)
+		}
 
-	}, func(pipe <-chan interface{}, writer Writer, cancel func(error)) {
+		//读取channel
+		for i := range ch {
+			t.Log(i)
+		}
 
-	})
+		//清空channel
+		for range ch {
+
+		}
+	}()
+	for i := 0; i < 10; i++ {
+		ch <- i
+		time.Sleep(time.Second)
+	}
+
+}
+
+//只读channel
+func readChan(rch <-chan interface{}) {
+	for i := range rch {
+		log.Println(i)
+	}
+}
+
+//只写channel
+func writeChan(wch chan<- interface{}) {
+	wch <- 1
 }

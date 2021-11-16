@@ -128,11 +128,13 @@ func MapReduceWithSource(source <-chan interface{}, mapper MapperFunc, reducer R
 	opts ...Option) (interface{}, error) {
 	//可选参数设置
 	options := buildOptions(opts...)
-	//聚合数据channel
+	//聚合数据channel，需要手动调用write方法写入到output中
 	output := make(chan interface{})
-	//todo 这里是什么意思呢？
+	//output最后只会被读取一次
 	defer func() {
-		//尝试读取output数据，如果读取到了则pannic？
+		//如果有多次写入的话则会造成阻塞从而导致协程泄漏
+		//这里用 for range检测是否可以读出数据，读出数据说明多次写入了
+		//为什么这里使用panic呢？显示的提醒用户用法错了会比自动修复掉好一些
 		for range output {
 			panic("more than one element written in reducer")
 		}
@@ -198,6 +200,9 @@ func MapReduceWithSource(source <-chan interface{}, mapper MapperFunc, reducer R
 	}, source, collector, done.Done(), options.workers)
 	//reducer将加工后的数据写入了output，
 	//需要数据返回时读取output即可
+	//假如output被写入了超过两次
+	//则开始的defer func那里将还可以读到数据
+	//由此可以检测到用户调用了多次write方法
 	value, ok := <-output
 	if err := retErr.Load(); err != nil {
 		return nil, err
@@ -279,6 +284,7 @@ func executeMappers(mapper MapFunc, input <-chan interface{}, collector chan<- i
 	var wg sync.WaitGroup
 	defer func() {
 		//等待数据加工任务完成
+		//防止数据加工的协程还未处理完数据就直接退出了
 		wg.Wait()
 		//关闭数据加工channel
 		close(collector)
@@ -355,6 +361,8 @@ func newGuardedWriter(channel chan<- interface{}, done <-chan lang.PlaceholderTy
 }
 
 //阻塞等待数据写入
+//这里需要特别注意
+//对于gw而言如果有多个地方调用Write方法的话其中一个会永远阻塞导致协程泄漏
 func (gw guardedWriter) Write(v interface{}) {
 	select {
 	//任务已完成，结束阻塞
