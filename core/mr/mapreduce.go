@@ -25,8 +25,8 @@ var (
 
 type (
 	// GenerateFunc is used to let callers send elements into source.
-	//数据生产者
-	//参数限定为只能写入的chan
+	//数据生产func
+	//source - 数据被生产后写入source
 	GenerateFunc func(source chan<- interface{})
 	// MapFunc is used to do element processing and write the output to writer.
 	MapFunc func(item interface{}, writer Writer)
@@ -34,13 +34,17 @@ type (
 	VoidMapFunc func(item interface{})
 	// MapperFunc is used to do element processing and write the output to writer,
 	// use cancel func to cancel the processing.
-	//数据处理
+	//数据加工func
+	//item - 生产出来的数据
+	//writer - 调用writer.Write()可以将加工后的向后传递至reducer
+	//cancel - 终止流程func
 	MapperFunc func(item interface{}, writer Writer, cancel func(error))
 	// ReducerFunc is used to reduce all the mapping output and write to writer,
 	// use cancel func to cancel the processing.
-	//数据聚合
-	//pipe - 加工的数据
-	//
+	//数据聚合func
+	//pipe - 加工出来的数据
+	//writer - 调用writer.Write()可以将聚合后的数据返回给用户
+	//cancel - 终止流程func
 	ReducerFunc func(pipe <-chan interface{}, writer Writer, cancel func(error))
 	// VoidReducerFunc is used to reduce all the mapping output, but no output.
 	// Use cancel func to cancel the processing.
@@ -59,6 +63,7 @@ type (
 )
 
 // Finish runs fns parallelly, cancelled on any error.
+//并发执行func，发生任何错误将会立即终止流程
 func Finish(fns ...func() error) error {
 	if len(fns) == 0 {
 		return nil
@@ -79,6 +84,7 @@ func Finish(fns ...func() error) error {
 }
 
 // FinishVoid runs fns parallelly.
+//并发执行func，即使发生错误也不会终止流程
 func FinishVoid(fns ...func()) {
 	if len(fns) == 0 {
 		return
@@ -95,9 +101,8 @@ func FinishVoid(fns ...func()) {
 }
 
 // Map maps all elements generated from given generate func, and returns an output channel.
-//支持数据生产
-//支持数据加工
-//返回数据加工的channel
+//需要用户手动将生产数据写入 source，加工数据后返回一个channel供读取
+//opts - 可选参数，目前包含：数据加工阶段协程数量
 func Map(generate GenerateFunc, mapper MapFunc, opts ...Option) chan interface{} {
 	options := buildOptions(opts...)
 	source := buildSource(generate)
@@ -111,17 +116,19 @@ func Map(generate GenerateFunc, mapper MapFunc, opts ...Option) chan interface{}
 
 // MapReduce maps all elements generated from given generate func,
 // and reduces the output elements with given reducer.
-//支持数据生产
-//支持数据加工
-//支持数据聚合
-//返回聚合数据
+//需要用户手动将生产数据写入 source ，并返回聚合后的数据
+//generate 生产
+//mapper 加工
+//reducer 聚合
+//opts - 可选参数，目前包含：数据加工阶段协程数量
 func MapReduce(generate GenerateFunc, mapper MapperFunc, reducer ReducerFunc, opts ...Option) (interface{}, error) {
 	source := buildSource(generate)
 	return MapReduceWithSource(source, mapper, reducer, opts...)
 }
 
 // MapReduceWithSource maps all elements from source, and reduce the output elements with given reducer.
-//source - 数据被生产后会写入到source，写入完成source会被close，但是仍然可以被读取
+//支持传入数据源channel，并返回聚合后的数据
+//source - 数据源channel
 //mapper - 读取source内容并处理
 //reducer - 数据处理完毕发送至reducer聚合
 func MapReduceWithSource(source <-chan interface{}, mapper MapperFunc, reducer ReducerFunc,
@@ -215,7 +222,7 @@ func MapReduceWithSource(source <-chan interface{}, mapper MapperFunc, reducer R
 
 // MapReduceVoid maps all elements generated from given generate,
 // and reduce the output elements with given reducer.
-//无聚合结果
+//无返回值，关注错误
 func MapReduceVoid(generate GenerateFunc, mapper MapperFunc, reducer VoidReducerFunc, opts ...Option) error {
 	_, err := MapReduce(generate, mapper, func(input <-chan interface{}, writer Writer, cancel func(error)) {
 		reducer(input, cancel)
@@ -227,7 +234,7 @@ func MapReduceVoid(generate GenerateFunc, mapper MapperFunc, reducer VoidReducer
 }
 
 // MapVoid maps all elements from given generate but no output.
-//无返回值
+//无返回值，不关注错误
 func MapVoid(generate GenerateFunc, mapper VoidMapFunc, opts ...Option) {
 	drain(Map(generate, func(item interface{}, writer Writer) {
 		mapper(item)
