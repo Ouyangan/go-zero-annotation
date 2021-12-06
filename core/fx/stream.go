@@ -131,17 +131,20 @@ func (s Stream) Buffer(n int) Stream {
 // Concat returns a Stream that concatenated other streams
 func (s Stream) Concat(others ...Stream) Stream {
 	source := make(chan interface{})
-
+	// 开启协程
 	go func() {
+		// 创建协程组
 		group := threading.NewRoutineGroup()
+		// 读取源source channel值
 		group.Run(func() {
 			for item := range s.source {
 				source <- item
 			}
 		})
-
+		// 读取待拼接stream
 		for _, each := range others {
 			each := each
+			// 每个stream开启一个协程
 			group.Run(func() {
 				for item := range each.source {
 					source <- item
