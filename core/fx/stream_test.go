@@ -169,7 +169,23 @@ func TestHead(t *testing.T) {
 		}
 		return result, nil
 	})
+	t.Log(runtime.NumGoroutine())
 	assert.Equal(t, 3, result)
+}
+
+func TestHeadLeak(t *testing.T) {
+	var result int
+	t.Log(runtime.NumGoroutine())
+	Just(1, 2, 3, 4).Head(2).Reduce(func(pipe <-chan interface{}) (interface{}, error) {
+		for item := range pipe {
+			result += item.(int)
+		}
+		return result, nil
+	})
+	t.Log(runtime.NumGoroutine())
+	assert.Equal(t, 3, result)
+	t.Log(runtime.NumGoroutine())
+
 }
 
 func TestHeadZero(t *testing.T) {
@@ -321,7 +337,21 @@ func TestTailZero(t *testing.T) {
 	})
 }
 
+func BenchmarkName(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		var result int
+		Just(1, 2, 3, 4, 5).Walk(func(item interface{}, pipe chan<- interface{}) {
+			if item.(int)%2 != 0 {
+				pipe <- item
+			}
+		}, WithWorkers(10)).ForEach(func(item interface{}) {
+			result += item.(int)
+		})
+		assert.Equal(b, 9, result)
+	}
+}
 func TestWalk(t *testing.T) {
+
 	var result int
 	Just(1, 2, 3, 4, 5).Walk(func(item interface{}, pipe chan<- interface{}) {
 		if item.(int)%2 != 0 {

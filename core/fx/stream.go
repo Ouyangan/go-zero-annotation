@@ -252,6 +252,7 @@ func (s Stream) Head(n int64) Stream {
 				// why we don't just break the loop, because if break,
 				// this former goroutine will block forever, which will cause goroutine leak.
 				close(source)
+				break
 			}
 		}
 		if n > 0 {
@@ -436,6 +437,7 @@ func (s Stream) walkLimited(fn WalkFunc, option *rxOptions) Stream {
 
 		wg.Wait()
 		close(pipe)
+		//close(pool)
 	}()
 
 	return Range(pipe)
