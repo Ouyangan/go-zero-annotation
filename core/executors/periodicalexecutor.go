@@ -18,29 +18,44 @@ const idleRound = 10
 type (
 	// TaskContainer interface defines a type that can be used as the underlying
 	// container that used to do periodical executions.
+	// 任务容器
 	TaskContainer interface {
 		// AddTask adds the task into the container.
 		// Returns true if the container needs to be flushed after the addition.
+		// 添加任务
 		AddTask(task interface{}) bool
 		// Execute handles the collected tasks by the container when flushing.
+		// 执行任务
 		Execute(tasks interface{})
 		// RemoveAll removes the contained tasks, and return them.
+		// 移除全部任务
 		RemoveAll() interface{}
 	}
 
 	// A PeriodicalExecutor is an executor that periodically execute tasks.
+	// 周期任务执行器
 	PeriodicalExecutor struct {
+		// todo
 		commander chan interface{}
-		interval  time.Duration
+		// 执行间隔
+		interval time.Duration
+		// 任务容器
 		container TaskContainer
+		// 同步器
 		waitGroup sync.WaitGroup
 		// avoid race condition on waitGroup when calling wg.Add/Done/Wait(...)
-		wgBarrier   syncx.Barrier
+		// 同步器屏障 todo
+		wgBarrier syncx.Barrier
+		// todo
 		confirmChan chan lang.PlaceholderType
-		inflight    int32
-		guarded     bool
-		newTicker   func(duration time.Duration) timex.Ticker
-		lock        sync.Mutex
+		// todo 共享调用?
+		inflight int32
+		// 监视器
+		guarded bool
+		// todo 定时器
+		newTicker func(duration time.Duration) timex.Ticker
+		// 独占锁
+		lock sync.Mutex
 	}
 )
 
@@ -48,6 +63,7 @@ type (
 func NewPeriodicalExecutor(interval time.Duration, container TaskContainer) *PeriodicalExecutor {
 	executor := &PeriodicalExecutor{
 		// buffer 1 to let the caller go quickly
+		// 这里为什么使用
 		commander:   make(chan interface{}, 1),
 		interval:    interval,
 		container:   container,
@@ -64,7 +80,9 @@ func NewPeriodicalExecutor(interval time.Duration, container TaskContainer) *Per
 }
 
 // Add adds tasks into pe.
+// 添加任务
 func (pe *PeriodicalExecutor) Add(task interface{}) {
+	//
 	if vals, ok := pe.addAndCheck(task); ok {
 		pe.commander <- vals
 		<-pe.confirmChan
