@@ -1,7 +1,9 @@
 package hash
 
 import (
+	"errors"
 	"fmt"
+	"github.com/tal-tech/go-zero/core/mr"
 	"strconv"
 	"testing"
 
@@ -85,6 +87,9 @@ func TestConsistentHashIncrementalTransfer(t *testing.T) {
 }
 
 func TestConsistentHashTransferOnFailure(t *testing.T) {
+	mr.Finish(func() error {
+		return errors.New("tet")
+	})
 	index := 41
 	keys, newKeys := getKeysBeforeAndAfterFailure(t, "localhost:", index)
 	var transferred int

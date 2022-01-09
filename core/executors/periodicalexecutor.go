@@ -48,9 +48,10 @@ type (
 		wgBarrier syncx.Barrier
 		// todo
 		confirmChan chan lang.PlaceholderType
-		// todo 共享调用?
+		// 当前待处理的任务数量
 		inflight int32
 		// 监视器
+		// todo 有什么作用呢？
 		guarded bool
 		// todo 定时器
 		newTicker func(duration time.Duration) timex.Ticker
@@ -63,15 +64,20 @@ type (
 func NewPeriodicalExecutor(interval time.Duration, container TaskContainer) *PeriodicalExecutor {
 	executor := &PeriodicalExecutor{
 		// buffer 1 to let the caller go quickly
-		// 这里为什么使用
-		commander:   make(chan interface{}, 1),
-		interval:    interval,
-		container:   container,
+		// 带缓冲的channel，为了使用调用方更快的返回
+		commander: make(chan interface{}, 1),
+		//调度间隔时间
+		interval: interval,
+		//任务容器
+		container: container,
+		//todo ？
 		confirmChan: make(chan lang.PlaceholderType),
+		//定时器
 		newTicker: func(d time.Duration) timex.Ticker {
 			return timex.NewTicker(d)
 		},
 	}
+	//退出信号监听，退出前执行任务
 	proc.AddShutdownListener(func() {
 		executor.Flush()
 	})
@@ -84,13 +90,16 @@ func NewPeriodicalExecutor(interval time.Duration, container TaskContainer) *Per
 func (pe *PeriodicalExecutor) Add(task interface{}) {
 	//
 	if vals, ok := pe.addAndCheck(task); ok {
+
 		pe.commander <- vals
 		<-pe.confirmChan
 	}
 }
 
 // Flush forces pe to execute tasks.
+// 强制执行任务池中所有任务
 func (pe *PeriodicalExecutor) Flush() bool {
+
 	pe.enterExecution()
 	return pe.executeTasks(func() interface{} {
 		pe.lock.Lock()
@@ -107,6 +116,7 @@ func (pe *PeriodicalExecutor) Sync(fn func()) {
 }
 
 // Wait waits the execution to be done.
+//
 func (pe *PeriodicalExecutor) Wait() {
 	pe.Flush()
 	pe.wgBarrier.Guard(func() {
@@ -114,9 +124,12 @@ func (pe *PeriodicalExecutor) Wait() {
 	})
 }
 
+// 添加任务到任务池
 func (pe *PeriodicalExecutor) addAndCheck(task interface{}) (interface{}, bool) {
+	//加锁
 	pe.lock.Lock()
 	defer func() {
+		// 判断是否在
 		if !pe.guarded {
 			pe.guarded = true
 			// defer to unlock quickly
@@ -125,23 +138,31 @@ func (pe *PeriodicalExecutor) addAndCheck(task interface{}) (interface{}, bool) 
 		pe.lock.Unlock()
 	}()
 
+	// 任务添加成功
 	if pe.container.AddTask(task) {
+		// 处理中任务数量+1
 		atomic.AddInt32(&pe.inflight, 1)
+		// 为什么添加成功要获取所有任务呢？
 		return pe.container.RemoveAll(), true
 	}
 
 	return nil, false
 }
 
+// 兜底任务策略
+// 定时刷新任务
 func (pe *PeriodicalExecutor) backgroundFlush() {
 	threading.GoSafe(func() {
 		// flush before quit goroutine to avoid missing tasks
+		// todo 为什么会存在丢失任务的场景呢？
 		defer pe.Flush()
-
+		// 启动定时器
 		ticker := pe.newTicker(pe.interval)
 		defer ticker.Stop()
 
+		// 运行标志
 		var commanded bool
+
 		last := timex.Now()
 		for {
 			select {
@@ -201,6 +222,7 @@ func (pe *PeriodicalExecutor) hasTasks(tasks interface{}) bool {
 	}
 }
 
+//
 func (pe *PeriodicalExecutor) shallQuit(last time.Duration) (stop bool) {
 	if timex.Since(last) <= pe.interval*idleRound {
 		return

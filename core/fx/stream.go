@@ -247,6 +247,8 @@ func (s Stream) Head(n int64) Stream {
 			if n >= 0 {
 				source <- item
 			}
+			// 如果当前channel的长度大于n，则n一定可以为0
+			// 此时提前关闭channel即可
 			if n == 0 {
 				// let successive method go ASAP even we have more items to skip
 				// why we don't just break the loop, because if break,
@@ -255,6 +257,8 @@ func (s Stream) Head(n int64) Stream {
 				break
 			}
 		}
+		// 如果channel中长度小于n，则n一定会大于0
+		// 同样需要关闭channel
 		if n > 0 {
 			close(source)
 		}

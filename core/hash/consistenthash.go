@@ -235,14 +235,14 @@ func (h *ConsistentHash) removeNode(nodeRepr string) {
 	delete(h.nodes, nodeRepr)
 }
 
-//返回node的string值
+//可以理解为确定node字符串值的序列化方法
 //在遇到哈希冲突时需要重新对key进行哈希计算
 //为了减少冲突的概率前面追加了一个质数 prime来减小冲突的概率
 func innerRepr(v interface{}) string {
 	return fmt.Sprintf("%d:%v", prime, v)
 }
 
-//返回node的字符串
+//可以理解为确定node字符串值的序列化方法
 //如果让node强制实现String()会不会更好一些？
 func repr(node interface{}) string {
 	return mapping.Repr(node)

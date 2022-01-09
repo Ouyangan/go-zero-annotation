@@ -433,6 +433,17 @@ func BenchmarkMapReduce(b *testing.B) {
 	}
 }
 
+func TestMr(t *testing.T) {
+	err := Finish(func() error {
+		return nil
+	}, func() error {
+		return nil
+	})
+	if {
+
+	}
+}
+
 func TestMapReduceWithSource(t *testing.T) {
 	ch := make(chan interface{})
 	//写入完毕需要主动关闭channel

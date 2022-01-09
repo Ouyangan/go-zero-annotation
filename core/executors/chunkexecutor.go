@@ -11,8 +11,11 @@ type (
 	// A ChunkExecutor is an executor to execute tasks when either requirement meets:
 	// 1. up to given chunk size
 	// 2. flush interval elapsed
+	// 执行器
 	ChunkExecutor struct {
-		executor  *PeriodicalExecutor
+		// 实际的执行器
+		executor *PeriodicalExecutor
+		// 任务容器
 		container *chunkContainer
 	}
 	// 可选配置
@@ -46,6 +49,8 @@ func NewChunkExecutor(execute Execute, opts ...ChunkOption) *ChunkExecutor {
 }
 
 // Add adds task with given chunk size into ce.
+// 添加任务
+// size需要自己计算好
 func (ce *ChunkExecutor) Add(task interface{}, size int) error {
 	ce.executor.Add(chunk{
 		val:  task,
@@ -55,16 +60,19 @@ func (ce *ChunkExecutor) Add(task interface{}, size int) error {
 }
 
 // Flush forces ce to flush and execute tasks.
+// 强制执行任务
 func (ce *ChunkExecutor) Flush() {
 	ce.executor.Flush()
 }
 
 // Wait waits the execution to be done.
+// 等待任务
 func (ce *ChunkExecutor) Wait() {
 	ce.executor.Wait()
 }
 
 // WithChunkBytes customizes a ChunkExecutor with the given chunk size.
+// 可选参数配置-字节大小
 func WithChunkBytes(size int) ChunkOption {
 	return func(options *chunkOptions) {
 		options.chunkSize = size
@@ -72,6 +80,7 @@ func WithChunkBytes(size int) ChunkOption {
 }
 
 // WithFlushInterval customizes a ChunkExecutor with the given flush interval.
+// 可选参数配置 -任务定时执行
 func WithFlushInterval(duration time.Duration) ChunkOption {
 	return func(options *chunkOptions) {
 		options.flushInterval = duration
@@ -92,6 +101,7 @@ type chunkContainer struct {
 	maxChunkSize int
 }
 
+// 添加任务
 func (bc *chunkContainer) AddTask(task interface{}) bool {
 	ck := task.(chunk)
 	bc.tasks = append(bc.tasks, ck.val)
@@ -99,11 +109,13 @@ func (bc *chunkContainer) AddTask(task interface{}) bool {
 	return bc.size >= bc.maxChunkSize
 }
 
+// 执行任务
 func (bc *chunkContainer) Execute(tasks interface{}) {
 	vals := tasks.([]interface{})
 	bc.execute(vals)
 }
 
+// 获取全部任务
 func (bc *chunkContainer) RemoveAll() interface{} {
 	tasks := bc.tasks
 	bc.tasks = nil
