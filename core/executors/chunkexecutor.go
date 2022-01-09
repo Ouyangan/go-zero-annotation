@@ -15,20 +15,24 @@ type (
 		executor  *PeriodicalExecutor
 		container *chunkContainer
 	}
-
+	// 可选配置
 	chunkOptions struct {
-		chunkSize     int
+		// 字节容量阈值
+		chunkSize int
+		// 周期性刷新时间,兜底策略
 		flushInterval time.Duration
 	}
 )
 
 // NewChunkExecutor returns a ChunkExecutor.
+// 构造函数
+// execute - 任务执行函数
+// opts - 可选配置参数
 func NewChunkExecutor(execute Execute, opts ...ChunkOption) *ChunkExecutor {
 	options := newChunkOptions()
 	for _, opt := range opts {
 		opt(&options)
 	}
-
 	container := &chunkContainer{
 		execute:      execute,
 		maxChunkSize: options.chunkSize,
